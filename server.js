@@ -24,7 +24,7 @@ app.use(express.static('public'));
 // MongoDB Connection with better error handling
 const connectDB = async () => {
     try {
-        await mongoose.connect(process.env.MONGODB_URI || 'mongodb://localhost:27017/student-registration', {
+        await mongoose.connect(process.env.MONGODB_URI, {
             useNewUrlParser: true,
             useUnifiedTopology: true
         });
@@ -128,8 +128,8 @@ app.post('/api/admin/login', async (req, res) => {
         }
         
         // Check admin credentials
-        const adminUsername = process.env.ADMIN_USERNAME || 'admin';
-        const adminPassword = process.env.ADMIN_PASSWORD || 'igniteu2025';
+        const adminUsername = process.env.ADMIN_USERNAME ;
+        const adminPassword = process.env.ADMIN_PASSWORD ;
         
         if (username !== adminUsername || password !== adminPassword) {
             return res.status(401).json({
