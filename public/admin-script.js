@@ -1,4 +1,4 @@
-// Admin Dashboard JavaScript
+// Admin Dashboard JavaScript with Authentication
 class AdminDashboard {
     constructor() {
         this.registrations = [];
@@ -7,18 +7,20 @@ class AdminDashboard {
         this.itemsPerPage = 10;
         this.searchTerm = '';
         this.classFilter = '';
+        this.token = localStorage.getItem('adminToken');
         
         this.initializeElements();
         this.bindEvents();
-        this.loadRegistrations();
-        
-        // Auto-refresh every 30 seconds
-        setInterval(() => {
-            this.loadRegistrations();
-        }, 30000);
+        this.checkAuthentication();
     }
     
     initializeElements() {
+        // Login elements
+        this.loginSection = document.getElementById('loginSection');
+        this.dashboardSection = document.getElementById('dashboardSection');
+        this.loginForm = document.getElementById('loginForm');
+        this.logoutBtn = document.getElementById('logoutBtn');
+        
         // Table elements
         this.tableBody = document.getElementById('registrationsTableBody');
         this.loadingSpinner = document.getElementById('loadingSpinner');
@@ -46,22 +48,44 @@ class AdminDashboard {
         this.deleteDetails = document.getElementById('deleteDetails');
         this.cancelDelete = document.getElementById('cancelDelete');
         this.confirmDelete = document.getElementById('confirmDelete');
+        
+        this.exportCsvBtn = document.getElementById('exportCsvBtn');
     }
     
     bindEvents() {
+        // Login form
+        if (this.loginForm) {
+            this.loginForm.addEventListener('submit', (e) => {
+                e.preventDefault();
+                this.handleLogin();
+            });
+        }
+        
+        // Logout button
+        if (this.logoutBtn) {
+            this.logoutBtn.addEventListener('click', () => {
+                this.handleLogout();
+            });
+        }
+        
         // Search functionality
+        if (this.searchInput) {
         this.searchInput.addEventListener('input', (e) => {
             this.searchTerm = e.target.value.toLowerCase();
             this.filterRegistrations();
         });
+        }
         
         // Class filter
+        if (this.classFilterSelect) {
         this.classFilterSelect.addEventListener('change', (e) => {
             this.classFilter = e.target.value;
             this.filterRegistrations();
         });
+        }
         
         // Refresh button
+        if (this.refreshBtn) {
         this.refreshBtn.addEventListener('click', () => {
             this.refreshBtn.querySelector('i').classList.add('fa-spin');
             this.loadRegistrations().finally(() => {
@@ -70,15 +94,19 @@ class AdminDashboard {
                 }, 1000);
             });
         });
+        }
         
         // Pagination
+        if (this.prevBtn) {
         this.prevBtn.addEventListener('click', () => {
             if (this.currentPage > 1) {
                 this.currentPage--;
                 this.renderTable();
             }
         });
+        }
         
+        if (this.nextBtn) {
         this.nextBtn.addEventListener('click', () => {
             const totalPages = Math.ceil(this.filteredRegistrations.length / this.itemsPerPage);
             if (this.currentPage < totalPages) {
@@ -86,15 +114,20 @@ class AdminDashboard {
                 this.renderTable();
             }
         });
+        }
         
         // Modal events
+        if (this.cancelDelete) {
         this.cancelDelete.addEventListener('click', () => {
             this.hideDeleteModal();
         });
+        }
         
+        if (this.confirmDelete) {
         this.confirmDelete.addEventListener('click', () => {
             this.deleteRegistration();
         });
+        }
         
         // Close modal on outside click
         window.addEventListener('click', (e) => {
@@ -109,13 +142,112 @@ class AdminDashboard {
                 this.hideDeleteModal();
             }
         });
+        
+        if (this.exportCsvBtn) {
+            this.exportCsvBtn.addEventListener('click', () => {
+                this.exportCsv();
+            });
+        }
+    }
+    
+    async checkAuthentication() {
+        if (!this.token) {
+            this.showLogin();
+            return;
+        }
+        
+        try {
+            const response = await fetch('/api/admin/verify', {
+                headers: {
+                    'Authorization': `Bearer ${this.token}`
+                }
+            });
+            
+            if (response.ok) {
+                this.showDashboard();
+                this.loadRegistrations();
+            } else {
+                localStorage.removeItem('adminToken');
+                this.showLogin();
+            }
+        } catch (error) {
+            console.error('Authentication check failed:', error);
+            localStorage.removeItem('adminToken');
+            this.showLogin();
+        }
+    }
+    
+    async handleLogin() {
+        const formData = new FormData(this.loginForm);
+        const username = formData.get('username');
+        const password = formData.get('password');
+        
+        if (!username || !password) {
+            this.showNotification('Please enter both username and password', 'error');
+            return;
+        }
+        
+        try {
+            const response = await fetch('/api/admin/login', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({ username, password })
+            });
+            
+            const result = await response.json();
+            
+            if (result.success) {
+                this.token = result.token;
+                localStorage.setItem('adminToken', this.token);
+                this.showNotification('Login successful!', 'success');
+                this.showDashboard();
+                this.loadRegistrations();
+            } else {
+                this.showNotification(result.message || 'Login failed', 'error');
+            }
+        } catch (error) {
+            console.error('Login error:', error);
+            this.showNotification('An error occurred during login', 'error');
+        }
+    }
+    
+    handleLogout() {
+        localStorage.removeItem('adminToken');
+        this.token = null;
+        this.showLogin();
+        this.showNotification('Logged out successfully', 'success');
+    }
+    
+    showLogin() {
+        this.loginSection.style.display = 'flex';
+        this.dashboardSection.style.display = 'none';
+    }
+    
+    showDashboard() {
+        this.loginSection.style.display = 'none';
+        this.dashboardSection.style.display = 'flex';
     }
     
     async loadRegistrations() {
         try {
             this.showLoading();
             
-            const response = await fetch('/api/queries');
+            const response = await fetch('/api/queries', {
+                headers: {
+                    'Authorization': `Bearer ${this.token}`
+                }
+            });
+            
+            if (!response.ok) {
+                if (response.status === 401) {
+                    this.handleLogout();
+                    return;
+                }
+                throw new Error('Failed to load registrations');
+            }
+            
             const result = await response.json();
             
             if (result.success) {
@@ -127,9 +259,29 @@ class AdminDashboard {
             }
         } catch (error) {
             console.error('Error loading registrations:', error);
-            this.showError('Failed to load registrations. Please try again.');
+            this.showNotification('Failed to load registrations. Please try again.', 'error');
         } finally {
             this.hideLoading();
+        }
+    }
+    
+    async updateStats() {
+        try {
+            const response = await fetch('/api/stats', {
+                headers: {
+                    'Authorization': `Bearer ${this.token}`
+                }
+            });
+            
+            if (response.ok) {
+                const result = await response.json();
+                if (result.success) {
+                    this.animateNumber(this.totalRegistrations, result.data.totalRegistrations);
+                    this.animateNumber(this.todayRegistrations, result.data.todayRegistrations);
+                }
+            }
+        } catch (error) {
+            console.error('Error updating stats:', error);
         }
     }
     
@@ -213,45 +365,30 @@ class AdminDashboard {
     
     updateStats() {
         const total = this.registrations.length;
-        const today = this.getTodayRegistrations();
+        const today = new Date();
+        today.setHours(0, 0, 0, 0);
+        const todayCount = this.registrations.filter(reg => 
+            new Date(reg.submittedAt) >= today
+        ).length;
         
-        // Animate stats update
         this.animateNumber(this.totalRegistrations, total);
-        this.animateNumber(this.todayRegistrations, today);
-        
-        // Add pulse animation to stat cards
-        const statCards = document.querySelectorAll('.stat-card');
-        statCards.forEach(card => {
-            card.classList.add('updated');
-            setTimeout(() => card.classList.remove('updated'), 600);
-        });
+        this.animateNumber(this.todayRegistrations, todayCount);
     }
     
     animateNumber(element, targetValue) {
-        const currentValue = parseInt(element.textContent) || 0;
-        const increment = (targetValue - currentValue) / 20;
-        let current = currentValue;
+        const startValue = 0;
+        const duration = 1000;
+        const increment = targetValue / (duration / 16);
+        let currentValue = startValue;
         
         const timer = setInterval(() => {
-            current += increment;
-            if ((increment > 0 && current >= targetValue) || (increment < 0 && current <= targetValue)) {
-                element.textContent = targetValue;
+            currentValue += increment;
+            if (currentValue >= targetValue) {
+                currentValue = targetValue;
                 clearInterval(timer);
-            } else {
-                element.textContent = Math.floor(current);
             }
-        }, 50);
-    }
-    
-    getTodayRegistrations() {
-        const today = new Date();
-        today.setHours(0, 0, 0, 0);
-        
-        return this.registrations.filter(registration => {
-            const registrationDate = new Date(registration.submittedAt);
-            registrationDate.setHours(0, 0, 0, 0);
-            return registrationDate.getTime() === today.getTime();
-        }).length;
+            element.textContent = Math.floor(currentValue);
+        }, 16);
     }
     
     updatePagination() {
@@ -267,20 +404,10 @@ class AdminDashboard {
     }
     
     viewRegistration(id) {
-        const registration = this.registrations.find(r => r._id === id);
+        const registration = this.registrations.find(reg => reg._id === id);
         if (!registration) return;
         
-        // Create a detailed view modal
-        const modal = document.createElement('div');
-        modal.className = 'modal';
-        modal.style.display = 'block';
-        modal.innerHTML = `
-            <div class="modal-content">
-                <div class="modal-header">
-                    <i class="fas fa-user-graduate"></i>
-                    <h2>Student Registration Details</h2>
-                </div>
-                <div class="modal-body">
+        const details = `
                     <div class="registration-details">
                         <div class="detail-row">
                             <label>Full Name:</label>
@@ -300,75 +427,69 @@ class AdminDashboard {
                         </div>
                         <div class="detail-row">
                             <label>Phone Number:</label>
-                            <span><a href="tel:${registration.phoneNumber}">${this.escapeHtml(registration.phoneNumber)}</a></span>
+                    <a href="tel:${registration.phoneNumber}">${this.escapeHtml(registration.phoneNumber)}</a>
                         </div>
                         <div class="detail-row">
                             <label>Question:</label>
-                            <span>${registration.question ? this.escapeHtml(registration.question) : 'No question submitted'}</span>
+                    <span>${registration.question ? this.escapeHtml(registration.question) : 'No question provided'}</span>
                         </div>
                         <div class="detail-row">
                             <label>Registration Date:</label>
                             <span>${this.formatDate(registration.submittedAt)} at ${this.formatTime(registration.submittedAt)}</span>
-                        </div>
-                    </div>
-                </div>
-                <div class="modal-footer">
-                    <button onclick="this.closest('.modal').remove()" class="close-btn">Close</button>
                 </div>
             </div>
         `;
         
-        document.body.appendChild(modal);
-        
-        // Close on outside click
-        modal.addEventListener('click', (e) => {
-            if (e.target === modal) {
-                modal.remove();
-            }
-        });
+        this.showNotification(details, 'info', 10000);
     }
     
     showDeleteModal(id) {
-        const registration = this.registrations.find(r => r._id === id);
+        const registration = this.registrations.find(reg => reg._id === id);
         if (!registration) return;
         
-        this.deleteDetails.textContent = `${registration.fullName} - ${registration.className} - ${registration.city}`;
-        this.confirmDelete.dataset.id = id;
+        this.deleteDetails.textContent = `${registration.fullName} (${registration.className})`;
         this.deleteModal.style.display = 'block';
+        this.confirmDelete.onclick = () => this.deleteRegistration(id);
     }
     
     hideDeleteModal() {
         this.deleteModal.style.display = 'none';
-        delete this.confirmDelete.dataset.id;
     }
     
-    async deleteRegistration() {
-        const id = this.confirmDelete.dataset.id;
-        if (!id) return;
-        
+    async deleteRegistration(id) {
         try {
             const response = await fetch(`/api/queries/${id}`, {
-                method: 'DELETE'
+                method: 'DELETE',
+                headers: {
+                    'Authorization': `Bearer ${this.token}`
+                }
             });
+            
+            if (!response.ok) {
+                if (response.status === 401) {
+                    this.handleLogout();
+                    return;
+                }
+                throw new Error('Failed to delete registration');
+            }
             
             const result = await response.json();
             
             if (result.success) {
+                this.showNotification('Registration deleted successfully', 'success');
                 this.hideDeleteModal();
-                this.showSuccess('Registration deleted successfully!');
                 this.loadRegistrations();
             } else {
                 throw new Error(result.message || 'Failed to delete registration');
             }
         } catch (error) {
             console.error('Error deleting registration:', error);
-            this.showError('Failed to delete registration. Please try again.');
+            this.showNotification('Failed to delete registration', 'error');
         }
     }
     
     formatDate(dateString) {
-        const date = new Date(dateString);
-        return date.toLocaleDateString('en-US', {
+        return new Date(dateString).toLocaleDateString('en-US', {
             year: 'numeric',
             month: 'short',
             day: 'numeric'
@@ -376,8 +497,7 @@ class AdminDashboard {
     }
     
     formatTime(dateString) {
-        const date = new Date(dateString);
-        return date.toLocaleTimeString('en-US', {
+        return new Date(dateString).toLocaleTimeString('en-US', {
             hour: '2-digit',
             minute: '2-digit'
         });
@@ -390,50 +510,51 @@ class AdminDashboard {
     }
     
     showLoading() {
+        if (this.loadingSpinner) {
         this.loadingSpinner.style.display = 'flex';
+        }
+        if (this.table) {
         this.table.style.display = 'none';
-        this.noData.style.display = 'none';
+        }
     }
     
     hideLoading() {
+        if (this.loadingSpinner) {
         this.loadingSpinner.style.display = 'none';
+        }
+        if (this.table) {
         this.table.style.display = 'table';
+        }
     }
     
     showNoData() {
-        this.noData.style.display = 'block';
+        if (this.noData) {
+            this.noData.style.display = 'flex';
+        }
+        if (this.table) {
         this.table.style.display = 'none';
+        }
     }
     
     hideNoData() {
+        if (this.noData) {
         this.noData.style.display = 'none';
+        }
+        if (this.table) {
         this.table.style.display = 'table';
     }
-    
-    showSuccess(message) {
-        this.showNotification(message, 'success');
     }
     
-    showError(message) {
-        this.showNotification(message, 'error');
-    }
-    
-    showNotification(message, type) {
+    showNotification(message, type = 'info', duration = 5000) {
         const notification = document.createElement('div');
-        notification.className = `notification ${type}-notification`;
-        notification.innerHTML = `
-            <div class="notification-content">
-                <i class="fas fa-${type === 'success' ? 'check-circle' : 'exclamation-circle'}"></i>
-                <span>${message}</span>
-                <button class="notification-close">&times;</button>
-            </div>
-        `;
-        
+        notification.className = `notification notification-${type}`;
         notification.style.cssText = `
             position: fixed;
             top: 20px;
             right: 20px;
-            background: linear-gradient(135deg, ${type === 'success' ? '#27AE60, #2ECC71' : '#E74C3C, #C0392B'});
+            background: ${type === 'success' ? 'linear-gradient(135deg, #27AE60, #2ECC71)' : 
+                         type === 'error' ? 'linear-gradient(135deg, #E74C3C, #C0392B)' : 
+                         'linear-gradient(135deg, #3498DB, #2980B9)'};
             color: white;
             padding: 1rem 1.5rem;
             border-radius: 10px;
@@ -441,10 +562,57 @@ class AdminDashboard {
             z-index: 3000;
             animation: slideInRight 0.3s ease;
             max-width: 400px;
+            word-wrap: break-word;
         `;
+        
+        notification.innerHTML = `
+            <div class="notification-content">
+                <div>${message}</div>
+                <button class="notification-close">&times;</button>
+            </div>
+        `;
+        
+        // Add animation styles if not exists
+        if (!document.querySelector('#notification-style')) {
+            const style = document.createElement('style');
+            style.id = 'notification-style';
+            style.textContent = `
+                @keyframes slideInRight {
+                    from { transform: translateX(100%); opacity: 0; }
+                    to { transform: translateX(0); opacity: 1; }
+                }
+                
+                .notification-content {
+                    display: flex;
+                    align-items: flex-start;
+                    gap: 0.5rem;
+                }
+                
+                .notification-close {
+                    background: none;
+                    border: none;
+                    color: white;
+                    font-size: 1.2rem;
+                    cursor: pointer;
+                    margin-left: auto;
+                    padding: 0;
+                    width: 20px;
+                    height: 20px;
+                    display: flex;
+                    align-items: center;
+                    justify-content: center;
+                }
+                
+                .notification-close:hover {
+                    opacity: 0.8;
+                }
+            `;
+            document.head.appendChild(style);
+        }
         
         document.body.appendChild(notification);
         
+        // Auto remove after duration
         setTimeout(() => {
             if (notification.parentNode) {
                 notification.style.animation = 'slideInRight 0.3s ease reverse';
@@ -454,8 +622,9 @@ class AdminDashboard {
                     }
                 }, 300);
             }
-        }, 5000);
+        }, duration);
         
+        // Close button functionality
         const closeBtn = notification.querySelector('.notification-close');
         closeBtn.addEventListener('click', () => {
             notification.style.animation = 'slideInRight 0.3s ease reverse';
@@ -466,13 +635,39 @@ class AdminDashboard {
             }, 300);
         });
     }
+    
+    async exportCsv() {
+        try {
+            this.exportCsvBtn.disabled = true;
+            this.exportCsvBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Exporting...';
+            const response = await fetch('/api/queries/export/csv', {
+                headers: {
+                    'Authorization': `Bearer ${this.token}`
+                }
+            });
+            if (!response.ok) {
+                throw new Error('Failed to export CSV');
+            }
+            const blob = await response.blob();
+            const url = window.URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = 'registrations.csv';
+            document.body.appendChild(a);
+            a.click();
+            a.remove();
+            window.URL.revokeObjectURL(url);
+        } catch (error) {
+            this.showNotification('Failed to export CSV', 'error');
+        } finally {
+            this.exportCsvBtn.disabled = false;
+            this.exportCsvBtn.innerHTML = '<i class="fas fa-file-csv"></i> Export CSV';
+        }
+    }
 }
 
-// Initialize admin dashboard when page loads
-let adminDashboard;
-document.addEventListener('DOMContentLoaded', () => {
-    adminDashboard = new AdminDashboard();
-});
+// Initialize admin dashboard
+const adminDashboard = new AdminDashboard();
 
 // Add CSS for registration details modal
 const style = document.createElement('style');

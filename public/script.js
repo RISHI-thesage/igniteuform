@@ -387,4 +387,13 @@ textarea.addEventListener('keydown', (e) => {
         e.preventDefault();
         form.dispatchEvent(new Event('submit'));
     }
-}); 
+});
+
+// Admin button functionality
+const adminAccessBtn = document.getElementById('adminAccessBtn');
+if (adminAccessBtn) {
+    adminAccessBtn.addEventListener('click', () => {
+        // Redirect to admin page
+        window.location.href = '/admin';
+    });
+} 
